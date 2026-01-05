@@ -1,0 +1,90 @@
+name: Build and Release Extension
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v3.0.0
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install web-ext
+        run: npm install -g web-ext
+      
+      - name: Validate extension
+        run: web-ext lint --source-dir . --self-hosted
+      
+      - name: Get version from manifest
+        id: get_version
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extension version: $VERSION"
+      
+      - name: Get tag name
+        id: get_tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # For manual runs, use version from manifest
+            VERSION=$(node -p "require('./manifest.json').version")
+            TAG="v${VERSION}"
+          else
+            # For tag pushes, use the tag name
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Release tag: $TAG"
+      
+      - name: Build extension packages
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          mkdir -p artifacts
+          
+          # Build ZIP using web-ext
+          web-ext build --source-dir . --artifacts-dir ./artifacts --filename "wimood_cart_manager-${VERSION}.zip"
+          
+          # Create XPI (XPI is just a ZIP with different extension)
+          cd artifacts
+          cp "wimood_cart_manager-${VERSION}.zip" "wimood_cart_manager-${VERSION}.xpi"
+          cd ..
+          
+          echo "✓ Created ZIP and XPI packages"
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_tag.outputs.tag }}
+          name: Release ${{ steps.get_tag.outputs.tag }}
+          body: |
+            ## Wimood Cart Manager ${{ steps.get_version.outputs.version }}
+            
+            ### Installation
+            1. Download the `.xpi` file for Firefox
+            2. Open Firefox and go to `about:addons`
+            3. Click the gear icon and select "Install Add-on From File..."
+            4. Select the downloaded `.xpi` file
+            
+            ### Files
+            - **ZIP**: For manual installation or development
+            - **XPI**: For Firefox installation
+            
+            ### Changes
+            See the commit history for details.
+          files: |
+            artifacts/wimood_cart_manager-${{ steps.get_version.outputs.version }}.zip
+            artifacts/wimood_cart_manager-${{ steps.get_version.outputs.version }}.xpi
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
