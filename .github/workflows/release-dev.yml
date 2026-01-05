@@ -1,0 +1,96 @@
+name: Build and Release Extension (Development)
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to create releases
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history and tags
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install web-ext
+        run: npm install -g web-ext
+      
+      - name: Validate extension
+        run: web-ext lint --source-dir . --self-hosted
+      
+      - name: Get version from manifest
+        id: get_version
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extension version: $VERSION"
+      
+      - name: Get release name
+        id: get_release_name
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          RELEASE_NAME="dev-${VERSION}-${SHA_SHORT}"
+          echo "name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+          echo "Release name: $RELEASE_NAME"
+      
+      - name: Build dev extension packages
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          mkdir -p artifacts/dev
+          
+          # Build ZIP using web-ext
+          web-ext build --source-dir . --artifacts-dir ./artifacts/dev --filename "wimood_cart_manager-${VERSION}-dev.zip"
+          
+          # Create unsigned XPI (XPI is just a ZIP with different extension)
+          cd artifacts/dev
+          cp "wimood_cart_manager-${VERSION}-dev.zip" "wimood_cart_manager-${VERSION}-dev.xpi"
+          cd ../..
+          
+          echo "✓ Created dev ZIP and XPI packages"
+      
+      - name: Create Development Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_release_name.outputs.name }}
+          name: Development Build ${{ steps.get_version.outputs.version }}
+          body: |
+            ## Wimood Cart Manager ${{ steps.get_version.outputs.version }} - Development Build
+            
+            ### 🛠️ Development Version (Unsigned)
+            
+            **⚠️ Warning:** These are **unsigned** development builds for testing purposes only.
+            
+            **Files:**
+            - ZIP: `wimood_cart_manager-${{ steps.get_version.outputs.version }}-dev.zip`
+            - XPI: `wimood_cart_manager-${{ steps.get_version.outputs.version }}-dev.xpi`
+            
+            **Installation (requires unsigned extension support):**
+            1. Download the `.xpi` file
+            2. In Firefox, go to `about:config`
+            3. Set `xpinstall.signatures.required` to `false` (restart Firefox)
+            4. Go to `about:addons` → gear icon → "Install Add-on From File..."
+            5. Select the downloaded `.xpi` file
+            
+            **Note:** This is a development build. For production use, use the signed version from the main branch.
+            
+            ### Changes
+            See the commit history for details.
+          files: |
+            artifacts/dev/wimood_cart_manager-${{ steps.get_version.outputs.version }}-dev.zip
+            artifacts/dev/wimood_cart_manager-${{ steps.get_version.outputs.version }}-dev.xpi
+          draft: false
+          prerelease: true  # Mark as pre-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
