@@ -1,0 +1,41 @@
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Build artifacts
+*.zip
+*.xpi
+*.crx
+
+# Logs
+*.log
+npm-debug.log*
+
+# Dependencies
+node_modules/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Environment files
+.env
+.env.local
+
+
+wimood-extension.zip
+
+web-ext-artifacts/
+
+.amo-upload-uuid
