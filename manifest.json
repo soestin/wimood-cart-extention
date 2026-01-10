@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Wimood Cart Manager",
-  "version": "6.0.0",
+  "version": "7.0.0",
   "description": "Save, load, and manage multiple shopping carts on wimoodshop.nl",
   "permissions": [
     "storage",
@@ -32,6 +32,18 @@
       "run_at": "document_idle"
     }
   ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "commands": {
+    "toggle-prices": {
+      "suggested_key": {
+        "default": "Alt+P",
+        "mac": "Alt+P"
+      },
+      "description": "Toggle price visibility (hold to temporarily show when hidden)"
+    }
+  },
   "browser_specific_settings": {
     "gecko": {
       "id": "wimood-cart-manager@justin.soestin.nl",

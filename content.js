@@ -30,6 +30,19 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
           sendResponse(toggleResult);
           break;
+        
+        case 'keyboardTogglePrices':
+          // Handle keyboard command from background script
+          // When prices are shown: hide them
+          // When prices are hidden: toggle to show (hold functionality handled by keyboard listener)
+          const currentState = await getPriceHiddenState();
+          const newState = !currentState;
+          const toggleRes = togglePriceDivs(newState, false);
+          if (toggleRes.success) {
+            await setPriceHiddenState(newState);
+          }
+          sendResponse(toggleRes);
+          break;
           
         default:
           sendResponse({ success: false, error: 'Unknown action' });
@@ -245,8 +258,17 @@ const PRICE_SELECTORS = [
   '.product-detail__price',
   '.product-detail__unit-price',
   '.product-card__price',
-  '.text--info[role="alert"]'
+  '.text--info[role="alert"]',
+  '.text--valid[role="alert"]'
 ];
+
+// Also hide h5 elements that contain price text (always hide these)
+function isPriceH5(element) {
+  if (element.tagName !== 'H5') return false;
+  const text = element.textContent || '';
+  // Check if it contains price-related text (e.g., "Totaal €", "€ X excl. BTW")
+  return /(?:Totaal|€|excl\.?\s*BTW)/i.test(text);
+}
 
 // Store original display styles
 let originalStyles = new Map();
@@ -254,9 +276,23 @@ let originalStyles = new Map();
 // Get all price elements
 function getAllPriceElements() {
   const elements = [];
+  
+  // Handle standard selectors
   PRICE_SELECTORS.forEach(selector => {
-    elements.push(...document.querySelectorAll(selector));
+    try {
+      elements.push(...document.querySelectorAll(selector));
+    } catch (e) {
+      console.warn('Selector error:', selector, e);
+    }
   });
+  
+  // Always add h5 elements with prices
+  document.querySelectorAll('h5').forEach(h5 => {
+    if (isPriceH5(h5)) {
+      elements.push(h5);
+    }
+  });
+  
   return elements;
 }
 
@@ -321,6 +357,27 @@ function togglePriceDivs(hide, temporary = false) {
                   console.warn('Selector error:', e);
                 }
               });
+              
+              // Check for h5 price elements
+              if (node.tagName === 'H5' && isPriceH5(node)) {
+                if (!originalStyles.has(node)) {
+                  originalStyles.set(node, node.style.display || '');
+                }
+                node.style.display = 'none';
+              }
+              
+              // Check for h5 elements within the added node
+              if (node.querySelectorAll) {
+                const nestedH5s = node.querySelectorAll('h5');
+                nestedH5s.forEach(h5 => {
+                  if (isPriceH5(h5)) {
+                    if (!originalStyles.has(h5)) {
+                      originalStyles.set(h5, h5.style.display || '');
+                    }
+                    h5.style.display = 'none';
+                  }
+                });
+              }
             }
           });
         });
@@ -366,67 +423,96 @@ async function setPriceHiddenState(hidden) {
   }
 }
 
-// Keyboard toggle handler
-let isKeyHeld = false;
+// Hold functionality: Listen for Alt+P keydown/keyup for temporary show when hidden
+// Note: The main toggle uses the commands API (rebindable in Firefox settings)
+// When prices are hidden and Alt+P is held, prices are shown temporarily
+// When released, prices are hidden again
+let isAltPHeld = false;
 let wasTemporarilyShown = false;
+let holdTimeout = null;
 
-async function handlePriceToggleKey(e) {
-  // Use 'P' key (case-insensitive, but only when not typing in inputs)
-  if (e.key.toLowerCase() === 'p' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+async function handleHoldKey(e) {
+  // Listen for Alt+P (default command key) for hold functionality
+  // Commands API doesn't support keydown/keyup, so we use this for hold behavior
+  if (e.key.toLowerCase() === 'p' && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
     // Ignore if user is typing in an input, textarea, or contenteditable
     const target = e.target;
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
       return;
     }
     
-    if (e.type === 'keydown' && !isKeyHeld) {
-      isKeyHeld = true;
+    if (e.type === 'keydown' && !isAltPHeld) {
+      isAltPHeld = true;
       const currentlyHidden = await getPriceHiddenState();
       
+      // If prices are hidden, show them temporarily after a short delay
+      // This delay allows the command to fire first (which will show prices)
+      // Then if key is still held, we keep them shown temporarily
       if (currentlyHidden) {
-        // When hidden: holding key shows prices temporarily
-        wasTemporarilyShown = true;
-        togglePriceDivs(false, true);
-      } else {
-        // When shown: pressing key hides prices permanently
-        wasTemporarilyShown = false;
-        e.preventDefault();
-        togglePriceDivs(true, false);
-        await setPriceHiddenState(true);
+        holdTimeout = setTimeout(async () => {
+          const stillHidden = await getPriceHiddenState();
+          // If prices were shown by command, check if they should be kept visible
+          // But if command didn't fire or prices are now shown, mark as temporarily shown
+          if (!stillHidden && isAltPHeld) {
+            wasTemporarilyShown = true;
+          }
+        }, 150);
       }
-    } else if (e.type === 'keyup' && isKeyHeld) {
-      isKeyHeld = false;
+    } else if (e.type === 'keyup' && isAltPHeld) {
+      isAltPHeld = false;
+      if (holdTimeout) {
+        clearTimeout(holdTimeout);
+        holdTimeout = null;
+      }
       
-      // Only hide again if prices were temporarily shown (when state was hidden)
+      // When releasing Alt+P, if prices were temporarily shown, hide them again
       if (wasTemporarilyShown) {
-        togglePriceDivs(true, false);
-        wasTemporarilyShown = false;
+        const currentlyHidden = await getPriceHiddenState();
+        if (!currentlyHidden) {
+          // Prices are currently shown, hide them and restore hidden state
+          togglePriceDivs(true, false);
+          await setPriceHiddenState(true);
+          wasTemporarilyShown = false;
+        }
       }
     }
-  } else {
-    // If a different key is pressed while 'P' was held, handle cleanup
-    if (e.type === 'keyup' && isKeyHeld) {
-      if (wasTemporarilyShown) {
-        // Hide temporarily shown prices
+  } else if (e.type === 'keyup' && (e.key === 'Alt' || e.key === 'Meta')) {
+    // Cleanup if Alt is released while P might still be held
+    if (isAltPHeld && wasTemporarilyShown) {
+      const currentlyHidden = await getPriceHiddenState();
+      if (!currentlyHidden) {
         togglePriceDivs(true, false);
-        wasTemporarilyShown = false;
+        setPriceHiddenState(true);
       }
-      isKeyHeld = false;
+      wasTemporarilyShown = false;
+    }
+    isAltPHeld = false;
+    if (holdTimeout) {
+      clearTimeout(holdTimeout);
+      holdTimeout = null;
     }
   }
 }
 
-// Setup keyboard listeners
-document.addEventListener('keydown', handlePriceToggleKey);
-document.addEventListener('keyup', handlePriceToggleKey);
+// Setup keyboard listeners for hold functionality
+document.addEventListener('keydown', handleHoldKey);
+document.addEventListener('keyup', handleHoldKey);
 
-// Reset key state if window loses focus (e.g., user switches tabs)
-window.addEventListener('blur', () => {
-  if (isKeyHeld && wasTemporarilyShown) {
-    togglePriceDivs(true, false);
+// Reset key state if window loses focus
+window.addEventListener('blur', async () => {
+  if (isAltPHeld && wasTemporarilyShown) {
+    const currentlyHidden = await getPriceHiddenState();
+    if (!currentlyHidden) {
+      togglePriceDivs(true, false);
+      await setPriceHiddenState(true);
+    }
     wasTemporarilyShown = false;
   }
-  isKeyHeld = false;
+  isAltPHeld = false;
+  if (holdTimeout) {
+    clearTimeout(holdTimeout);
+    holdTimeout = null;
+  }
 });
 
 // Initialize price div visibility on page load
