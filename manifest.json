@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Wimood Cart Manager",
-  "version": "4.0.0",
+  "version": "5.0.0",
   "description": "Save, load, and manage multiple shopping carts on wimoodshop.nl",
   "permissions": [
     "storage",
