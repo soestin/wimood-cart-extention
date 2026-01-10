@@ -10,6 +10,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Event listeners
   document.getElementById('save-cart-btn').addEventListener('click', handleSaveCart);
   document.getElementById('clear-cart-btn').addEventListener('click', handleClearCart);
+  document.getElementById('toggle-price-btn').addEventListener('click', handleTogglePriceDivs);
+  
+  // Update button state based on stored preference
+  updatePriceToggleButtonState();
   
   // Allow Enter key to save cart
   document.getElementById('cart-name-input').addEventListener('keypress', (e) => {
@@ -387,6 +391,65 @@ function showStatus(message, type = 'info') {
   setTimeout(() => {
     statusEl.classList.remove('show');
   }, 3000);
+}
+
+// Handle toggle price divs
+async function handleTogglePriceDivs() {
+  try {
+    const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+    
+    if (!tab.url || !tab.url.includes('wimoodshop.nl')) {
+      showStatus('Please navigate to wimoodshop.nl first', 'error');
+      return;
+    }
+    
+    // Get current state from storage
+    const result = await browser.storage.local.get('priceDivsHidden');
+    const currentlyHidden = result.priceDivsHidden || false;
+    const newState = !currentlyHidden;
+    
+    // Send message to content script
+    const response = await browser.tabs.sendMessage(tab.id, {
+      action: 'togglePriceDivs',
+      hide: newState
+    });
+    
+    if (response.success) {
+      // Save state to storage
+      await browser.storage.local.set({ priceDivsHidden: newState });
+      await updatePriceToggleButtonState();
+      showStatus(
+        newState ? 'Price divs hidden' : 'Price divs shown',
+        'success'
+      );
+    } else {
+      showStatus(`Error: ${response.error || 'Unknown error'}`, 'error');
+    }
+  } catch (error) {
+    console.error('Error toggling price divs:', error);
+    showStatus('Error toggling price divs', 'error');
+  }
+}
+
+// Update the toggle button state and text
+async function updatePriceToggleButtonState() {
+  try {
+    const result = await browser.storage.local.get('priceDivsHidden');
+    const isHidden = result.priceDivsHidden || false;
+    const button = document.getElementById('toggle-price-btn');
+    
+    if (isHidden) {
+      button.textContent = 'Show Price Divs';
+      button.classList.remove('btn-secondary');
+      button.classList.add('btn-primary');
+    } else {
+      button.textContent = 'Hide Price Divs';
+      button.classList.remove('btn-primary');
+      button.classList.add('btn-secondary');
+    }
+  } catch (error) {
+    console.error('Error updating button state:', error);
+  }
 }
 
 // Escape HTML to prevent XSS

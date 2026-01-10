@@ -23,6 +23,11 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
           sendResponse(clearResult);
           break;
           
+        case 'togglePriceDivs':
+          const toggleResult = togglePriceDivs(request.hide);
+          sendResponse(toggleResult);
+          break;
+          
         default:
           sendResponse({ success: false, error: 'Unknown action' });
       }
@@ -231,3 +236,91 @@ async function clearCart() {
     return { success: false, error: error.message };
   }
 }
+
+// Toggle visibility of price divs
+function togglePriceDivs(hide) {
+  try {
+    const priceDivs = document.querySelectorAll('.product-detail__price');
+    
+    if (priceDivs.length === 0) {
+      return { success: false, error: 'No price divs found on the page' };
+    }
+    
+    priceDivs.forEach(div => {
+      if (hide) {
+        div.style.display = 'none';
+      } else {
+        div.style.display = '';
+      }
+    });
+    
+    // Also handle dynamically added elements using MutationObserver
+    if (hide && !window.priceDivObserver) {
+      window.priceDivObserver = new MutationObserver(mutations => {
+        mutations.forEach(mutation => {
+          mutation.addedNodes.forEach(node => {
+            if (node.nodeType === 1) { // Element node
+              // Check if the added node is a price div
+              if (node.classList && node.classList.contains('product-detail__price')) {
+                node.style.display = 'none';
+              }
+              // Check for price divs within the added node
+              const nestedPriceDivs = node.querySelectorAll && node.querySelectorAll('.product-detail__price');
+              if (nestedPriceDivs) {
+                nestedPriceDivs.forEach(div => {
+                  div.style.display = 'none';
+                });
+              }
+            }
+          });
+        });
+      });
+      
+      window.priceDivObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    } else if (!hide && window.priceDivObserver) {
+      window.priceDivObserver.disconnect();
+      window.priceDivObserver = null;
+    }
+    
+    return { 
+      success: true, 
+      hidden: hide,
+      count: priceDivs.length 
+    };
+  } catch (error) {
+    console.error('Error toggling price divs:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Initialize price div visibility on page load
+(function initPriceDivVisibility() {
+  const checkAndHide = () => {
+    browser.storage.local.get('priceDivsHidden').then(result => {
+      const shouldHide = result.priceDivsHidden || false;
+      
+      if (shouldHide) {
+        // If DOM is ready, hide immediately, otherwise wait
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => togglePriceDivs(true), 100);
+          });
+        } else {
+          setTimeout(() => togglePriceDivs(true), 100);
+        }
+      }
+    }).catch(error => {
+      console.error('Error initializing price div visibility:', error);
+    });
+  };
+  
+  // Check immediately if DOM is already ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', checkAndHide);
+  } else {
+    checkAndHide();
+  }
+})();
