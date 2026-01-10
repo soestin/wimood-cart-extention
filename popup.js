@@ -15,6 +15,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Update button state based on stored preference
   updatePriceToggleButtonState();
   
+  // Refresh button state when popup gains focus (in case keyboard toggle was used)
+  window.addEventListener('focus', updatePriceToggleButtonState);
+  
+  // Also refresh periodically while popup is open (but less frequently)
+  setInterval(() => {
+    if (document.hasFocus()) {
+      updatePriceToggleButtonState();
+    }
+  }, 1000);
+  
   // Allow Enter key to save cart
   document.getElementById('cart-name-input').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
@@ -419,7 +429,7 @@ async function handleTogglePriceDivs() {
       await browser.storage.local.set({ priceDivsHidden: newState });
       await updatePriceToggleButtonState();
       showStatus(
-        newState ? 'Price divs hidden' : 'Price divs shown',
+        newState ? 'Prices hidden' : 'Prices shown',
         'success'
       );
     } else {
@@ -439,11 +449,11 @@ async function updatePriceToggleButtonState() {
     const button = document.getElementById('toggle-price-btn');
     
     if (isHidden) {
-      button.textContent = 'Show Price Divs';
+      button.textContent = 'Show Prices';
       button.classList.remove('btn-secondary');
       button.classList.add('btn-primary');
     } else {
-      button.textContent = 'Hide Price Divs';
+      button.textContent = 'Hide Prices';
       button.classList.remove('btn-primary');
       button.classList.add('btn-secondary');
     }

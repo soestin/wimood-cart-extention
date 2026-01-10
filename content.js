@@ -24,7 +24,10 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
           break;
           
         case 'togglePriceDivs':
-          const toggleResult = togglePriceDivs(request.hide);
+          const toggleResult = togglePriceDivs(request.hide, false);
+          if (toggleResult.success) {
+            await setPriceHiddenState(request.hide);
+          }
           sendResponse(toggleResult);
           break;
           
@@ -237,20 +240,53 @@ async function clearCart() {
   }
 }
 
-// Toggle visibility of price divs
-function togglePriceDivs(hide) {
+// Price-related selectors
+const PRICE_SELECTORS = [
+  '.product-detail__price',
+  '.product-detail__unit-price',
+  '.product-card__price',
+  '.text--info[role="alert"]'
+];
+
+// Store original display styles
+let originalStyles = new Map();
+
+// Get all price elements
+function getAllPriceElements() {
+  const elements = [];
+  PRICE_SELECTORS.forEach(selector => {
+    elements.push(...document.querySelectorAll(selector));
+  });
+  return elements;
+}
+
+// Toggle visibility of all price-related elements
+function togglePriceDivs(hide, temporary = false) {
   try {
-    const priceDivs = document.querySelectorAll('.product-detail__price');
+    const priceElements = getAllPriceElements();
     
-    if (priceDivs.length === 0) {
-      return { success: false, error: 'No price divs found on the page' };
+    if (priceElements.length === 0) {
+      return { success: false, error: 'No price elements found on the page' };
     }
     
-    priceDivs.forEach(div => {
+    priceElements.forEach(element => {
       if (hide) {
-        div.style.display = 'none';
+        // Store original display style if not already stored
+        if (!originalStyles.has(element)) {
+          originalStyles.set(element, element.style.display || '');
+        }
+        element.style.display = 'none';
       } else {
-        div.style.display = '';
+        // Restore original display style
+        const originalStyle = originalStyles.get(element);
+        if (originalStyle !== undefined) {
+          element.style.display = originalStyle;
+          if (!temporary) {
+            originalStyles.delete(element);
+          }
+        } else {
+          element.style.display = '';
+        }
       }
     });
     
@@ -260,17 +296,31 @@ function togglePriceDivs(hide) {
         mutations.forEach(mutation => {
           mutation.addedNodes.forEach(node => {
             if (node.nodeType === 1) { // Element node
-              // Check if the added node is a price div
-              if (node.classList && node.classList.contains('product-detail__price')) {
-                node.style.display = 'none';
-              }
-              // Check for price divs within the added node
-              const nestedPriceDivs = node.querySelectorAll && node.querySelectorAll('.product-detail__price');
-              if (nestedPriceDivs) {
-                nestedPriceDivs.forEach(div => {
-                  div.style.display = 'none';
-                });
-              }
+              // Check each selector
+              PRICE_SELECTORS.forEach(selector => {
+                // Check if the added node matches the selector
+                try {
+                  if (node.matches && node.matches(selector)) {
+                    if (!originalStyles.has(node)) {
+                      originalStyles.set(node, node.style.display || '');
+                    }
+                    node.style.display = 'none';
+                  }
+                  // Check for price elements within the added node
+                  if (node.querySelectorAll) {
+                    const nestedElements = node.querySelectorAll(selector);
+                    nestedElements.forEach(el => {
+                      if (!originalStyles.has(el)) {
+                        originalStyles.set(el, el.style.display || '');
+                      }
+                      el.style.display = 'none';
+                    });
+                  }
+                } catch (e) {
+                  // Ignore selector errors
+                  console.warn('Selector error:', e);
+                }
+              });
             }
           });
         });
@@ -280,7 +330,7 @@ function togglePriceDivs(hide) {
         childList: true,
         subtree: true
       });
-    } else if (!hide && window.priceDivObserver) {
+    } else if (!hide && !temporary && window.priceDivObserver) {
       window.priceDivObserver.disconnect();
       window.priceDivObserver = null;
     }
@@ -288,13 +338,96 @@ function togglePriceDivs(hide) {
     return { 
       success: true, 
       hidden: hide,
-      count: priceDivs.length 
+      count: priceElements.length 
     };
   } catch (error) {
     console.error('Error toggling price divs:', error);
     return { success: false, error: error.message };
   }
 }
+
+// Get current hidden state
+async function getPriceHiddenState() {
+  try {
+    const result = await browser.storage.local.get('priceDivsHidden');
+    return result.priceDivsHidden || false;
+  } catch (error) {
+    console.error('Error getting price hidden state:', error);
+    return false;
+  }
+}
+
+// Set price hidden state
+async function setPriceHiddenState(hidden) {
+  try {
+    await browser.storage.local.set({ priceDivsHidden: hidden });
+  } catch (error) {
+    console.error('Error setting price hidden state:', error);
+  }
+}
+
+// Keyboard toggle handler
+let isKeyHeld = false;
+let wasTemporarilyShown = false;
+
+async function handlePriceToggleKey(e) {
+  // Use 'P' key (case-insensitive, but only when not typing in inputs)
+  if (e.key.toLowerCase() === 'p' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    // Ignore if user is typing in an input, textarea, or contenteditable
+    const target = e.target;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      return;
+    }
+    
+    if (e.type === 'keydown' && !isKeyHeld) {
+      isKeyHeld = true;
+      const currentlyHidden = await getPriceHiddenState();
+      
+      if (currentlyHidden) {
+        // When hidden: holding key shows prices temporarily
+        wasTemporarilyShown = true;
+        togglePriceDivs(false, true);
+      } else {
+        // When shown: pressing key hides prices permanently
+        wasTemporarilyShown = false;
+        e.preventDefault();
+        togglePriceDivs(true, false);
+        await setPriceHiddenState(true);
+      }
+    } else if (e.type === 'keyup' && isKeyHeld) {
+      isKeyHeld = false;
+      
+      // Only hide again if prices were temporarily shown (when state was hidden)
+      if (wasTemporarilyShown) {
+        togglePriceDivs(true, false);
+        wasTemporarilyShown = false;
+      }
+    }
+  } else {
+    // If a different key is pressed while 'P' was held, handle cleanup
+    if (e.type === 'keyup' && isKeyHeld) {
+      if (wasTemporarilyShown) {
+        // Hide temporarily shown prices
+        togglePriceDivs(true, false);
+        wasTemporarilyShown = false;
+      }
+      isKeyHeld = false;
+    }
+  }
+}
+
+// Setup keyboard listeners
+document.addEventListener('keydown', handlePriceToggleKey);
+document.addEventListener('keyup', handlePriceToggleKey);
+
+// Reset key state if window loses focus (e.g., user switches tabs)
+window.addEventListener('blur', () => {
+  if (isKeyHeld && wasTemporarilyShown) {
+    togglePriceDivs(true, false);
+    wasTemporarilyShown = false;
+  }
+  isKeyHeld = false;
+});
 
 // Initialize price div visibility on page load
 (function initPriceDivVisibility() {
@@ -306,10 +439,10 @@ function togglePriceDivs(hide) {
         // If DOM is ready, hide immediately, otherwise wait
         if (document.readyState === 'loading') {
           document.addEventListener('DOMContentLoaded', () => {
-            setTimeout(() => togglePriceDivs(true), 100);
+            setTimeout(() => togglePriceDivs(true, false), 100);
           });
         } else {
-          setTimeout(() => togglePriceDivs(true), 100);
+          setTimeout(() => togglePriceDivs(true, false), 100);
         }
       }
     }).catch(error => {
