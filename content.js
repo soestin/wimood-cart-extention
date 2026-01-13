@@ -259,7 +259,9 @@ const PRICE_SELECTORS = [
   '.product-detail__unit-price',
   '.product-card__price',
   '.text--info[role="alert"]',
-  '.text--valid[role="alert"]'
+  '.text--valid[role="alert"]',
+  '.shoppingcart-totals__amount',
+  'h4.h6'
 ];
 
 // Also hide h5 elements that contain price text (always hide these)
@@ -268,6 +270,14 @@ function isPriceH5(element) {
   const text = element.textContent || '';
   // Check if it contains price-related text (e.g., "Totaal €", "€ X excl. BTW")
   return /(?:Totaal|€|excl\.?\s*BTW)/i.test(text);
+}
+
+// Check if h4 element contains price text (shopping cart page)
+function isPriceH4(element) {
+  if (element.tagName !== 'H4') return false;
+  const text = element.textContent || '';
+  // Check if it contains price (€ symbol)
+  return /€/.test(text);
 }
 
 // Store original display styles
@@ -290,6 +300,13 @@ function getAllPriceElements() {
   document.querySelectorAll('h5').forEach(h5 => {
     if (isPriceH5(h5)) {
       elements.push(h5);
+    }
+  });
+  
+  // Always add h4 elements with prices (shopping cart page)
+  document.querySelectorAll('h4').forEach(h4 => {
+    if (isPriceH4(h4)) {
+      elements.push(h4);
     }
   });
   
@@ -366,7 +383,15 @@ function togglePriceDivs(hide, temporary = false) {
                 node.style.display = 'none';
               }
               
-              // Check for h5 elements within the added node
+              // Check for h4 price elements (shopping cart page)
+              if (node.tagName === 'H4' && isPriceH4(node)) {
+                if (!originalStyles.has(node)) {
+                  originalStyles.set(node, node.style.display || '');
+                }
+                node.style.display = 'none';
+              }
+              
+              // Check for h5 and h4 elements within the added node
               if (node.querySelectorAll) {
                 const nestedH5s = node.querySelectorAll('h5');
                 nestedH5s.forEach(h5 => {
@@ -375,6 +400,16 @@ function togglePriceDivs(hide, temporary = false) {
                       originalStyles.set(h5, h5.style.display || '');
                     }
                     h5.style.display = 'none';
+                  }
+                });
+                
+                const nestedH4s = node.querySelectorAll('h4');
+                nestedH4s.forEach(h4 => {
+                  if (isPriceH4(h4)) {
+                    if (!originalStyles.has(h4)) {
+                      originalStyles.set(h4, h4.style.display || '');
+                    }
+                    h4.style.display = 'none';
                   }
                 });
               }
