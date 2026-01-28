@@ -68,7 +68,7 @@ jobs:
             --artifacts-dir ./artifacts/signed \
             --api-key "${{ secrets.AMO_API_KEY }}" \
             --api-secret "${{ secrets.AMO_API_SECRET }}" \
-            --channel unlisted \
+            --channel listed \
             --timeout 600000
           
           # Find the signed XPI file (web-ext creates it with a generated name)
