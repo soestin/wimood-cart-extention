@@ -2,7 +2,6 @@
   "manifest_version": 3,
   "name": "Wimood Cart Manager",
   "version": "7.0.2",
-    "license": "GPL-3.0-or-later",
   "description": "Save, load, and manage multiple shopping carts on wimoodshop.nl",
   "permissions": [
     "storage",
