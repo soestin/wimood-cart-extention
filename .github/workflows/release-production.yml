@@ -69,7 +69,6 @@ jobs:
             --api-key "${{ secrets.AMO_API_KEY }}" \
             --api-secret "${{ secrets.AMO_API_SECRET }}" \
             --channel listed \
-            --amo-metadata ./amo-metadata.json \
             --timeout 600000
           
           # Find the signed XPI file (web-ext creates it with a generated name)
